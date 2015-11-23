@@ -1,0 +1,351 @@
+<?php
+
+module_load_include('inc', 'commerce_payboxkz', 'includes/commerce_payboxkz.admin');
+include('CommercePayboxSignature.php');
+/**
+ * Implements hook_menu().
+ */
+function commerce_payboxkz_menu() {
+	$items['payboxkz/result'] = array(
+		'title' => 'Result of payment through PayBox Merchant',
+		'page callback' => 'commerce_payboxkz_result',
+		'access callback' => TRUE,
+		'type' => MENU_CALLBACK,
+	);
+	 $items['payboxkz/success'] = array(
+		'title' => 'Successful payment',
+		'page callback' => 'commerce_payboxkz_success',
+		'access arguments' => array('access content'),
+		'type' => MENU_CALLBACK,
+	);
+	 $items['payboxkz/fail'] = array(
+		'title' => 'Unsuccessful payment',
+		'page callback' => 'commerce_payboxkz_fail',
+		'access arguments' => array('access content'),
+		'type' => MENU_CALLBACK,
+	 );
+	return $items;
+}
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_payboxkz_commerce_payment_method_info() {
+	//  TODO: If it call twice (to clone system too - can rename every system from settings)
+	//  commerce_payboxkz_get_settings('name') 
+	//	
+	$payment_methods = array();
+	$payment_methods['commerce_payboxkz'] = array(
+		'base' => 'commerce_payboxkz',
+		'title' => t('PayBox'),
+		'short_title' => t('PayBox'),
+		'display_title' => t('PayBox'),
+		'description' => t('Integrates PayBox Merchant'),
+		'terminal' => FALSE,
+		'offsite' => TRUE,
+		// @todo Maybe better make it auto?
+		//'offsite_autoredirect' => TRUE,
+		'active' => TRUE,
+	);
+	return $payment_methods;
+}
+
+/**
+ * Payment method callback; generation callback for the payment submission form.
+ *
+ * @param $payment_method
+ *   An array of the current settings.
+ * @param $pane_values
+ *   The current values of the pane.
+ * @param $checkout_pane
+ *   The checkout pane array.
+ * @param $order
+ *   The order object.
+ *
+ * @return
+ *   A form snippet for the checkout pane.
+ */
+function commerce_payboxkz_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+	$build = array();
+	$text = theme('image', array(
+		'path' => $payment_method['settings']['logo_url'],
+		'alt' => $payment_method['settings']['name'],
+		'title' => $payment_method['settings']['name'],
+		'attributes' => array('class' => 'logo-payboxkz'),
+		));
+	$text .= '<div class="desc">' . $payment_method['settings']['description'] . '</div>';
+	$build['print_receipt'] = array('#markup' => $text);
+
+return $build;
+}
+
+/**
+ * Payment method callback: redirect form.
+ *
+ * A wrapper around the module's general use function for building a submit form.
+ */
+function commerce_payboxkz_redirect_form($form, &$form_state, $order, $payment_method) {
+	return commerce_payboxkz_build_redirect_form($form, $form_state, $order, $payment_method['settings']);
+}
+
+/**
+ * Payment method callback; generation callback for the payment redirect form.
+ *
+ * Returns form elements that should be submitted to the redirected payment
+ * service; because of the array merge that happens upon return, the service’s
+ * URL that should receive the POST variables should be set in the #action
+ * property of the returned form array.
+ */
+function commerce_payboxkz_build_redirect_form($form, &$form_state, $order, $settings) {
+	// Choose a server to redirect.
+	$form['#action'] = 'https://paybox.kz/payment.php';
+	//  $form['#method'] = 'GET';
+	$wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+	$currency_code = $wrapper->commerce_order_total->currency_code->value();
+	if($currency_code == 'RUB')
+		$currency_code = 'RUR';
+
+	$amount_not_formated = $wrapper->commerce_order_total->amount->value();
+	$amount = commerce_currency_amount_to_decimal($amount_not_formated, $currency_code);
+
+	$strLanguage = isset($GLOBALS['conf']['language_default']->language)?$GLOBALS['conf']['language_default']->language : $GLOBALS['language']->language;
+	if($strLanguage != 'ru')
+		$strLanguage = 'en';
+
+	$nLifeTime = 0;
+	if(!empty($settings["lifetime"]))
+		$nLifeTime = $settings["lifetime"];
+
+	$strSiteUrl = 'http://'.$_SERVER['HTTP_HOST'];
+	$strSuccessUrl = $strSiteUrl.url('payboxkz/success');
+	$strFailureUrl = $strSiteUrl.url('payboxkz/fail');
+	$strResultCheckUrl = $strSiteUrl.url('payboxkz/result');
+
+	$arrFields = array(
+		'pg_merchant_id'		=> $settings["merchant_id"],
+		'pg_order_id'			=> $order->order_id,
+		'pg_currency'			=> $currency_code,
+		'pg_amount'				=> $amount,
+		'pg_lifetime'			=> $nLifeTime,
+		'pg_testing_mode'		=> $settings["demo_mode"],
+		'pg_description'		=> $_SERVER['HTTP_HOST']." # ".$order->order_id,
+		'pg_user_ip'			=> $_SERVER['REMOTE_ADDR'],
+		'pg_language'			=> $strLanguage,
+		'pg_check_url'			=> $strResultCheckUrl,
+		'pg_result_url'			=> $strResultCheckUrl,
+		'pg_success_url'		=> $strSuccessUrl,
+		'pg_failure_url'		=> $strFailureUrl,
+		'pg_request_method'		=> 'GET',
+		'pg_salt'				=> rand(21,43433), // Параметры безопасности сообщения. Необходима генерация pg_salt и подписи сообщения.
+	);
+
+	if(!empty($order->mail)){
+		$arrFields['pg_user_email'] = $order->mail;
+		$arrFields['pg_user_contact_email'] = $order->mail;
+	}
+
+	$arrFields['op'] = 'Pay via PayBox';
+	$arrFields['pg_sig'] = CommercePayboxSignature::make('payment.php', $arrFields, $settings["secret_key"]);
+	foreach($arrFields as $paramName => $paramValue){
+		if($paramName != 'op')
+			$form[$paramName] = array('#type' => 'hidden', '#value' => $paramValue);
+	}
+
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Pay via PayBox'),
+	);
+
+	return $form;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Removes drupal-related form_ids from final redirect.
+ */
+function commerce_payboxkz_form_commerce_checkout_form_payment_alter(&$form, &$form_state, $form_id){
+	unset($form["#form_id"]);
+	unset($form["form_id"]);
+	unset($form["form_token"]);
+	unset($form["form_build_id"]);
+}
+
+/**
+ * Helper to returs statuses.
+ */
+function commerce_payboxkz_statuses() {
+	$options = array();
+	$statuses = commerce_payment_transaction_statuses();
+	if(!empty($statuses)) {
+		foreach($statuses as $status) {
+			$options[$status['status']] = $status['title'];
+		}
+	}
+	return $options;
+}
+
+/**
+ * Helper to return setting from variable.
+ *
+ * @param $settings name of the setting's key.
+ *
+ * @return setting value.
+ */
+function commerce_payboxkz_get_settings($settings) {
+	$output = '';
+	$vars = variable_get('commerce_payboxkz_settings', '');
+	if (!empty($vars)) {
+		foreach ($vars as $key=>$var) {
+			if ($key == $settings) {
+				$output = $vars[$key]['#default_value'];
+				break;
+			}
+		}
+	}
+	return $output;
+}
+
+/**
+ * Success page callback handler.
+ */
+function commerce_payboxkz_success() {
+	$build = array();
+	$message = t('Thank you, payment successful.');
+	drupal_set_message($message, 'status');
+	if ($message = commerce_payboxkz_get_settings('success_message'))
+		$build['message_success']['#markup'] = $message;
+
+	return $build;
+}
+
+/**
+ * Fail page callback handler.
+ */
+function commerce_payboxkz_fail() {
+	drupal_set_message(t('Payment unsuccessful!'), 'error');
+	$build = array();
+	if ($message = commerce_payboxkz_get_settings('fail_message'))
+		$build['message_fail']['#markup'] = $message;
+	
+	return $build;
+}
+
+/**
+ * Page callback to receive payment notification from PayBox.
+ */
+function commerce_payboxkz_result() {
+	if(!empty($_POST))
+		$arrRequest = $_POST;
+	else
+		$arrRequest = $_GET;
+
+	unset($arrRequest['q']);
+	
+	$order = commerce_order_load($arrRequest['pg_order_id']);
+	$wrapper = entity_metadata_wrapper('commerce_order', $arrRequest['pg_order_id']);
+
+	if (empty($arrRequest['pg_sig']) || !CommercePayboxSignature::check($arrRequest['pg_sig'], 'result', $arrRequest, commerce_payboxkz_get_settings('secret_key')))
+		die("Wrong signature");
+
+	$amount_not_parsed = $wrapper->commerce_order_total->amount->value();
+	  
+	if(!isset($arrRequest['pg_result'])){
+		$bCheckResult = 0;
+		if(empty($order) || $order->status != 'checkout_payment')
+			$error_desc = "Товар не доступен. Либо заказа нет, либо его статус " . $order->status;	
+		elseif(sprintf('%0.2f',$arrRequest['pg_amount']) != sprintf('%0.2f',$amount_not_parsed))
+			$error_desc = "Неверная сумма";
+		else
+			$bCheckResult = 1;
+
+		$arrResponse['pg_salt']              = $arrRequest['pg_salt']; // в ответе необходимо указывать тот же pg_salt, что и в запросе
+		$arrResponse['pg_status']            = $bCheckResult ? 'ok' : 'error';
+		$arrResponse['pg_error_description'] = $bCheckResult ?  ""  : $error_desc;
+		$arrResponse['pg_sig']				 = CommercePayboxSignature::make('result', $arrResponse, commerce_payboxkz_get_settings('secret_key'));
+
+		$objResponse = new SimpleXMLElement('<?xml version="1.0" encoding="utf-8"?><response/>');
+		$objResponse->addChild('pg_salt', $arrResponse['pg_salt']);
+		$objResponse->addChild('pg_status', $arrResponse['pg_status']);
+		$objResponse->addChild('pg_error_description', $arrResponse['pg_error_description']);
+		$objResponse->addChild('pg_sig', $arrResponse['pg_sig']);
+
+	}
+	else{
+		$bResult = 0;
+		if(empty($order) || 
+				($order->status != 'checkout_payment' &&
+				!($order->status != COMMERCE_PAYMENT_STATUS_SUCCESS && $arrRequest['pg_result'] == 1) && 
+				( $order->transaction_status != COMMERCE_PAYMENT_STATUS_FAILURE && $arrRequest['pg_result'] == 0)))
+
+			$strResponseDescription = "Товар не доступен. Либо заказа нет, либо его статус " . $order->status;		
+		elseif(sprintf('%0.2f',$arrRequest['pg_amount']) != sprintf('%0.2f',$amount_not_parsed))
+			$strResponseDescription = "Неверная сумма";
+		else {
+			$bResult = 1;
+			$strResponseStatus = 'ok';
+			$strResponseDescription = "Оплата принята";
+			if ($arrRequest['pg_result'] == 1) {
+				// Установим статус оплачен
+				commerce_payboxkz_create_transaction($arrRequest, COMMERCE_PAYMENT_STATUS_SUCCESS);
+				watchdog('commerce_payboxkz', 'Order #@order paid successfully.', array('@order' => $arrRequest['pg_payment_id']), WATCHDOG_INFO);
+			}
+			else{
+				// Не удачная оплата
+				commerce_payboxkz_create_transaction($arrRequest, COMMERCE_PAYMENT_STATUS_FAILURE);
+				watchdog('commerce_payboxkz', 'Order #@order paid failed.', array('@order' => $arrRequest['pg_payment_id']), WATCHDOG_INFO);
+			}
+		}
+		if(!$bResult)
+			if($arrRequest['pg_can_reject'] == 1)
+				$strResponseStatus = 'rejected';
+			else
+				$strResponseStatus = 'error';
+
+		$objResponse = new SimpleXMLElement('<?xml version="1.0" encoding="utf-8"?><response/>');
+		$objResponse->addChild('pg_salt', $arrRequest['pg_salt']); // в ответе необходимо указывать тот же pg_salt, что и в запросе
+		$objResponse->addChild('pg_status', $strResponseStatus);
+		$objResponse->addChild('pg_description', $strResponseDescription);
+		$objResponse->addChild('pg_sig', CommercePayboxSignature::makeXML('result', $objResponse, commerce_payboxkz_get_settings('secret_key')));
+	}
+
+	header("Content-type: text/xml");
+	echo $objResponse->asXML();
+	die();
+}
+
+/**
+ * Creates an PayBox payment transaction for the specified charge amount.
+ *
+ * @param $payment_method
+ *   The payment method instance object used to charge this payment.
+ * @param $order
+ *   The order object the payment applies to.
+ * @param $charge
+ *   An array indicating the amount and currency code to charge.
+ * @param $name
+ *   The name entered on the submission form.
+ */
+function commerce_payboxkz_create_transaction($arrRequest, $status) {
+	$order = commerce_order_load($arrRequest['pg_order_id']);
+	$payment_method = commerce_payment_method_instance_load($order->data['payment_method']);
+	$wrapper = entity_metadata_wrapper('commerce_order', $arrRequest['pg_order_id']);
+	$amount_not_parsed = $wrapper->commerce_order_total->amount->value();
+	$currency_code = $wrapper->commerce_order_total->currency_code->value();
+
+	$transaction = commerce_payment_transaction_new('commerce_payboxkz', $order->order_id);
+	$transaction->instance_id = $payment_method['instance_id'];
+	$transaction->status = $status;
+	$transaction->amount = $amount_not_parsed;
+	$transaction->currency_code = $currency_code;
+	$transaction->remote_id = $arrRequest['pg_payment_id'];
+	$transaction->message_variables = array('@transaction_id' => $arrRequest['pg_payment_id']);
+	if ($status == COMMERCE_PAYMENT_STATUS_SUCCESS)
+	  $transaction->message = 'Transaction accepted with id '.$arrRequest['pg_payment_id'];
+	elseif ($status == COMMERCE_PAYMENT_STATUS_FAILURE)
+	  $transaction->message = 'Error for the transaction with id '.$arrRequest['pg_payment_id'].' description '.$arrRequest['pg_error_description'];
+
+	commerce_payment_transaction_save($transaction);
+	rules_invoke_all('commerce_checkout_complete', $order);
+}
