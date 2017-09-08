@@ -69,8 +69,8 @@ function commerce_payboxkz_submit_form($payment_method, $pane_values, $checkout_
 	$build = array();
 	$text = theme('image', array(
 		'path' => $payment_method['settings']['logo_url'],
-		'alt' => $payment_method['settings']['name'],
-		'title' => $payment_method['settings']['name'],
+		'alt' => 'PayBox.money',
+		'title' => 'PayBox.money',
 		'attributes' => array('class' => 'logo-payboxkz'),
 		));
 	$text .= '<div class="desc">' . $payment_method['settings']['description'] . '</div>';
@@ -103,8 +103,8 @@ function commerce_payboxkz_build_redirect_form($form, &$form_state, $order, $set
 	$wrapper = entity_metadata_wrapper('commerce_order', $order);
 
 	$currency_code = $wrapper->commerce_order_total->currency_code->value();
-	if($currency_code == 'RUB')
-		$currency_code = 'RUR';
+	if($currency_code == 'RUR')
+		$currency_code = 'RUB';
 
 	$amount_not_formated = $wrapper->commerce_order_total->amount->value();
 	$amount = commerce_currency_amount_to_decimal($amount_not_formated, $currency_code);
