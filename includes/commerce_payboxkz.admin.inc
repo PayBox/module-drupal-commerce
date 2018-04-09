@@ -11,7 +11,7 @@ function commerce_payboxkz_settings_form($settings = NULL) {
 		'secret_key'		=> '',
 		'lifetime'			=> '0',
 		'demo_mode'			=> '1',
-		'logo_url'			=> 'https://paybox.kz/assets/frontend/img/logo.png',
+		'logo_url'			=> 'https://paybox.money/assets/frontend/img/logo.png',
 		'description'		=> 'Description',
 		'success_message'	=> 'Thank you for payment',
 		'fail_message'		=> 'Payment failed',
@@ -20,14 +20,14 @@ function commerce_payboxkz_settings_form($settings = NULL) {
 	$form['merchant_id'] = array(
 		'#type' => 'textfield',
 		'#title' => t('Merchant id'),
-		'#description' => t('See at <a href="https://paybox.kz/admin/merchants.php">PayBox admin path merchants</a>'),
+		'#description' => t('See at <a href="https://my.paybox.money">PayBox admin path merchants</a>'),
 		'#default_value' => $settings['merchant_id'],
 	);
 
 	$form['secret_key'] = array(
 		'#type' => 'textfield',
 		'#title' => t('Secret key'),
-		'#description' => t('See at <a href="https://paybox.kz/admin/merchants.php">PayBox admin path merchants</a>'),
+		'#description' => t('See at <a href="https://my.paybox.money">PayBox admin path merchants</a>'),
 		'#default_value' => $settings['secret_key'],
 	);
 
