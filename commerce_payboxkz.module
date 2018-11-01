@@ -250,12 +250,14 @@ function commerce_payboxkz_result() {
 		die("Wrong signature");
 
 	$amount_not_parsed = $wrapper->commerce_order_total->amount->value();
+	$currency_code = $wrapper->commerce_order_total->currency_code->value();
+    $amount = commerce_currency_amount_to_decimal($amount_not_parsed, $currency_code);
 
 	if(!isset($arrRequest['pg_result'])){
 		$bCheckResult = 0;
 		if(empty($order) || $order->status != 'checkout_payment')
 			$error_desc = "Товар не доступен. Либо заказа нет, либо его статус " . $order->status;
-		elseif(sprintf('%0.2f',$arrRequest['pg_amount']) != sprintf('%0.2f',$amount_not_parsed))
+		elseif(sprintf('%0.2f',$arrRequest['pg_amount']) != sprintf('%0.2f',$amount))
 			$error_desc = "Неверная сумма";
 		else
 			$bCheckResult = 1;
@@ -280,7 +282,7 @@ function commerce_payboxkz_result() {
 				( $order->transaction_status != COMMERCE_PAYMENT_STATUS_FAILURE && $arrRequest['pg_result'] == 0)))
 
 			$strResponseDescription = "Товар не доступен. Либо заказа нет, либо его статус " . $order->status;
-		elseif(sprintf('%0.2f',$arrRequest['pg_amount']) != sprintf('%0.2f',$amount_not_parsed))
+		elseif(sprintf('%0.2f',$arrRequest['pg_amount']) != sprintf('%0.2f',$amount))
 			$strResponseDescription = "Неверная сумма";
 		else {
 			$bResult = 1;
