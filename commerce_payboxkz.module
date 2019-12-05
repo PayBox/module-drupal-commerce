@@ -117,7 +117,7 @@ function commerce_payboxkz_build_redirect_form($form, &$form_state, $order, $set
 	if(!empty($settings["lifetime"]))
 		$nLifeTime = $settings["lifetime"];
 
-	$strSiteUrl = 'http://'.$_SERVER['HTTP_HOST'];
+	$strSiteUrl = (isset($_SERVER['HTTPS']) && !empty($_SERVER['HTTPS']) ? 'https' : 'http') . '://'.$_SERVER['HTTP_HOST'];
 	$strSuccessUrl = $strSiteUrl.url('payboxkz/success');
 	$strFailureUrl = $strSiteUrl.url('payboxkz/fail');
 	$strResultCheckUrl = $strSiteUrl.url('payboxkz/result');
